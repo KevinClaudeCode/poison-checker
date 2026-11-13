@@ -60,7 +60,7 @@ ul.why{margin:6px 0 0;padding-left:18px;font-size:.93rem}
 <body>
 <main>
   <h1>Poison Check</h1>
-  <p class="lede">Spots images that may have hidden AI-poisoning (like Nightshade or Glaze). Everything runs on your device: your images are never uploaded.</p>
+  <p class="lede"><span style="float:right;font-size:.75rem;opacity:.6">v2</span>Spots images that may have hidden AI-poisoning (like Nightshade or Glaze). Everything runs on your device: your images are never uploaded.</p>
 
   <div class="card">
     <p class="step">1. Pick the images to check</p>
@@ -289,20 +289,45 @@ function mkCanvas(w, h) {
   return { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }), w, h };
 }
 
-async function decode(file) {
-  try { const b = await createImageBitmap(file, { imageOrientation: 'from-image' }); return { src: b, W: b.width, H: b.height }; }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function guessType(file) {
+  if (file.type) return file.type;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', avif: 'image/avif' }[ext] || '';
+}
+async function decodeBlob(blob) {
+  try { const b = await createImageBitmap(blob, { imageOrientation: 'from-image' }); return { src: b, W: b.width, H: b.height }; }
   catch {
-    const url = URL.createObjectURL(file), img = new Image();
-    img.src = url; await img.decode();
+    const url = URL.createObjectURL(blob), img = new Image();
+    try { img.src = url; await img.decode(); }
+    catch (e) { URL.revokeObjectURL(url); throw e; }
     return { src: img, W: img.naturalWidth, H: img.naturalHeight, url };
   }
 }
+// Read the bytes ourselves first (phones can hand over files that only open once),
+// then decode; retry once after a pause in case the phone was short on memory.
+async function decode(file) {
+  let buf;
+  try { buf = await file.arrayBuffer(); }
+  catch (e) { throw new Error(`Phone wouldn't let the page read this file (${e.name || 'read error'}). Try picking it from the Files app instead of the gallery.`); }
+  if (!buf.byteLength) throw new Error('File came through empty (0 bytes). Try picking it from the Files app instead of the gallery.');
+  const blob = new Blob([buf], { type: guessType(file) });
+  try { return await decodeBlob(blob); }
+  catch {
+    await sleep(400);
+    try { return await decodeBlob(blob); }
+    catch (e) { throw new Error(`Couldn't open the image (${e.name || 'decode error'}, ${buf.byteLength >= 1e6 ? (buf.byteLength / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(buf.byteLength / 1e3)) + ' KB'}). The phone may be low on memory: try fewer images at once, or turn off the AI check.`); }
+  }
+}
 function release(d) { if (d.src.close) d.src.close(); if (d.url) URL.revokeObjectURL(d.url); }
+function free(...cs) { for (const c of cs) if (c && c.canvas) { c.canvas.width = 0; c.canvas.height = 0; } }
 
 function thumb(d) {
   const s = 144, k = Math.max(d.W, d.H) / s, c = mkCanvas(Math.max(1, Math.round(d.W / k)), Math.max(1, Math.round(d.H / k)));
   c.ctx.drawImage(d.src, 0, 0, c.w, c.h);
-  return c.canvas.toDataURL('image/jpeg', 0.7);
+  const url = c.canvas.toDataURL('image/jpeg', 0.7);
+  free(c);
+  return url;
 }
 
 function rgbOf(rgba, n) {
@@ -318,6 +343,7 @@ async function purify(canvas) {
   const c = mkCanvas(canvas.width, canvas.height);
   c.ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
   const d = c.ctx.getImageData(0, 0, c.w, c.h).data, n = c.w * c.h, out = new Uint8ClampedArray(n * 3);
+  free(c);
   for (let ch = 0; ch < 3; ch++) {
     const a = new Float32Array(n);
     for (let i = 0; i < n; i++) a[i] = d[i * 4 + ch];
@@ -355,8 +381,11 @@ const unit = v => { let s = 0; for (const x of v) s += x * x; s = Math.sqrt(s) |
 const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
 async function embedImage(rgb, w, h) {
   const img = new AI.T.RawImage(rgb, w, h, 3);
-  const { image_embeds } = await AI.vision(await AI.processor(img));
-  return unit(image_embeds.data);
+  const inputs = await AI.processor(img);
+  const { image_embeds } = await AI.vision(inputs);
+  const out = unit(image_embeds.data);
+  for (const t of [inputs.pixel_values, image_embeds]) try { t && t.dispose && t.dispose(); } catch {}
+  return out;
 }
 async function embedTexts(labels) {
   const inp = AI.tokenizer(labels.map(l => `a photo of a ${l}`), { padding: true, truncation: true });
@@ -404,9 +433,9 @@ async function analyseOne(file, opt) {
     row.changed = changed / n;
     if (changed) row.diff = oc.canvas.toDataURL('image/jpeg', 0.85);
     row.resized = o.W !== d.W || o.H !== d.H;
-    release(o);
+    release(o); free(oc);
   }
-  release(d);
+  release(d); free(c);
   return row;
 }
 
@@ -416,7 +445,7 @@ async function analyseAll(files, opt, label) {
     setStatus(`${label} ${i + 1} of ${files.length}…`, (i) / files.length);
     try { rows.push(await analyseOne(files[i], opt)); }
     catch (e) { rows.push({ name: files[i].name, error: String(e && e.message || e) }); }
-    await tick();
+    await sleep(30);   // let the phone free memory between images
   }
   return rows;
 }
