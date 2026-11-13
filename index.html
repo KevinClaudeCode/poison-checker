@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poison Check</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mute:#6b6a64;--line:#e3e1da;--accent:#2f5d50;--accent-ink:#fff;
+  --warn:#a8401a;--warnbg:#fbece5;--maybe:#8a6a12;--maybebg:#fbf3dc;--ok:#2f6b3a;--okbg:#e7f3e8}
+@media (prefers-color-scheme:dark){:root{--bg:#131312;--card:#1d1d1b;--ink:#eceae4;--mute:#9b9992;--line:#2f2e2b;
+  --accent:#86c0ab;--accent-ink:#0f1f19;--warn:#f39a73;--warnbg:#3a2219;--maybe:#e6c46a;--maybebg:#352c14;--ok:#93d29f;--okbg:#1b2c1e}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);-webkit-text-size-adjust:100%}
+main{max-width:680px;margin:0 auto;padding:24px 16px 72px}
+h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.01em}
+.lede{color:var(--mute);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.pick{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.btn{appearance:none;border:0;border-radius:10px;padding:12px 18px;font:inherit;font-weight:600;cursor:pointer;
+  background:var(--accent);color:var(--accent-ink);display:inline-block;text-align:center}
+.btn.secondary{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.wide{width:100%;padding:14px;font-size:1.05rem}
+input[type=file]{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.count{color:var(--mute);font-size:.92rem}
+.step{font-weight:650;margin:0 0 8px}
+.hint{color:var(--mute);font-size:.88rem;margin:6px 0 0}
+details>summary{cursor:pointer;font-weight:600;list-style:none;padding:2px 0}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"+ ";color:var(--mute)}
+details[open]>summary::before{content:"– "}
+.opt{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.opt:first-of-type{border-top:0}
+label.chk{display:flex;gap:10px;align-items:flex-start}
+label.chk input{margin-top:4px;width:18px;height:18px;flex:none}
+input[type=text]{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin-top:6px}
+#status{min-height:1.5em;color:var(--mute);margin:14px 2px 6px;font-size:.95rem}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;display:none}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.note{background:var(--maybebg);color:var(--ink);border-radius:10px;padding:10px 12px;font-size:.92rem;margin:10px 0}
+#summary{font-size:1.15rem;font-weight:650;margin:22px 2px 10px}
+.row{display:flex;gap:12px;align-items:flex-start}
+.row img.th{width:72px;height:72px;object-fit:cover;border-radius:8px;flex:none;background:var(--line)}
+.row .body{min-width:0;flex:1}
+.name{font-weight:600;word-break:break-all}
+.pill{display:inline-block;font-size:.8rem;font-weight:650;border-radius:999px;padding:2px 10px;margin:4px 0}
+.pill.bad{background:var(--warnbg);color:var(--warn)}
+.pill.maybe{background:var(--maybebg);color:var(--maybe)}
+.pill.ok{background:var(--okbg);color:var(--ok)}
+.pill.err{background:var(--line);color:var(--mute)}
+ul.why{margin:6px 0 0;padding-left:18px;font-size:.93rem}
+.nums{color:var(--mute);font-size:.8rem;margin-top:6px;font-variant-numeric:tabular-nums}
+.diff{margin-top:10px}
+.diff img{width:100%;border-radius:8px;image-rendering:pixelated;background:#000}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
+.help p{margin:8px 0;font-size:.93rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>Poison Check</h1>
+  <p class="lede">Spots images that may have hidden AI-poisoning (like Nightshade or Glaze). Everything runs on your device: your images are never uploaded.</p>
+
+  <div class="card">
+    <p class="step">1. Pick the images to check</p>
+    <div class="pick">
+      <label class="btn" for="fCheck">Choose images</label>
+      <input id="fCheck" type="file" accept="image/*" multiple>
+      <span class="count" id="nCheck"></span>
+    </div>
+    <p class="hint">Pick 8 or more if you can. The checker compares images against each other to find the odd ones out.</p>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Extra options (optional)</summary>
+
+      <div class="opt">
+        <label class="chk"><input id="useAI" type="checkbox" checked>
+          <span><b>Use the AI check</b><br><span class="hint">Strongest test. Downloads a small AI model once (about 90&nbsp;MB, or 150&nbsp;MB with labels below), then works offline.</span></span></label>
+      </div>
+
+      <div class="opt">
+        <p class="step">Known-clean images</p>
+        <div class="pick">
+          <label class="btn secondary" for="fClean">Choose</label>
+          <input id="fClean" type="file" accept="image/*" multiple>
+          <span class="count" id="nClean"></span>
+        </div>
+        <p class="hint">Images you know are fine and in a similar style. Makes the results much more reliable.</p>
+      </div>
+
+      <div class="opt">
+        <p class="step">Originals</p>
+        <div class="pick">
+          <label class="btn secondary" for="fOrig">Choose</label>
+          <input id="fOrig" type="file" accept="image/*" multiple>
+          <span class="count" id="nOrig"></span>
+        </div>
+        <p class="hint">If you have the untouched versions, pick them here. They're matched by file name and you'll see exactly what changed.</p>
+      </div>
+
+      <div class="opt">
+        <p class="step">What's in the images? (labels)</p>
+        <input id="labels" type="text" placeholder="e.g. cat, dog, car, person, landscape" autocomplete="off">
+        <p class="hint">Optional, needs the AI check. Flags images where the AI's answer changes after a light clean-up.</p>
+      </div>
+    </details>
+  </div>
+
+  <button class="btn wide" id="run" disabled>2. Check images</button>
+  <div id="status"></div>
+  <div class="bar" id="bar"><i></i></div>
+  <div id="notes"></div>
+
+  <div id="summary"></div>
+  <div class="tools" id="tools" hidden>
+    <button class="btn secondary" id="copy">Copy results</button>
+    <button class="btn secondary" id="dl">Download CSV</button>
+  </div>
+  <div id="results"></div>
+
+  <div class="card help">
+    <details>
+      <summary>How to read the results</summary>
+      <p><b>Looks normal</b>: nothing stood out.</p>
+      <p><b>Worth a closer look</b>: one warning sign. Zoom in and check smooth areas (sky, skin, plain backgrounds) for faint swirly texture.</p>
+      <p><b>Suspicious</b>: several warning signs at once.</p>
+      <p>Grainy photos, heavily compressed JPEGs and noisy art styles can trigger false alarms, so treat this as a "look here first" list, not proof.</p>
+      <p><b>The checks:</b> fine texture hiding in smooth areas; unusual amounts of very fine detail; how much the AI's view of the image shifts after a light clean-up (poisoning tends to break when you do that); and, if you add originals, how many pixels were changed.</p>
+    </details>
+  </div>
+</main>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const MODEL = 'Xenova/clip-vit-base-patch32';
+const TJS = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3';
+const CROP = 1024, BLOCK = 16, ZFLAG = 3.5, MIN_BASE = 8;
+
+// ---------------------------------------------------------------- pure:start
+function toGray(rgba, n) {
+  const g = new Float32Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) g[i] = rgba[j] * 0.299 + rgba[j + 1] * 0.587 + rgba[j + 2] * 0.114;
+  return g;
+}
+
+function gaussKernel(s) {
+  const r = Math.ceil(3 * s), k = new Float32Array(2 * r + 1);
+  let sum = 0;
+  for (let i = -r; i <= r; i++) { k[i + r] = Math.exp(-i * i / (2 * s * s)); sum += k[i + r]; }
+  for (let i = 0; i < k.length; i++) k[i] /= sum;
+  return k;
+}
+
+function blur(src, w, h, s) {
+  const k = gaussKernel(s), r = (k.length - 1) / 2, tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      let a = 0;
+      for (let i = -r; i <= r; i++) { let xx = x + i; xx = xx < 0 ? 0 : xx >= w ? w - 1 : xx; a += src[row + xx] * k[i + r]; }
+      tmp[row + x] = a;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let a = 0;
+      for (let i = -r; i <= r; i++) { let yy = y + i; yy = yy < 0 ? 0 : yy >= h ? h - 1 : yy; a += tmp[yy * w + x] * k[i + r]; }
+      out[y * w + x] = a;
+    }
+  }
+  return out;
+}
+
+function median3(src, w, h) {
+  const out = new Float32Array(w * h), v = new Float32Array(9);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      let yy = y + dy; yy = yy < 0 ? 0 : yy >= h ? h - 1 : yy;
+      for (let dx = -1; dx <= 1; dx++) { let xx = x + dx; xx = xx < 0 ? 0 : xx >= w ? w - 1 : xx; v[n++] = src[yy * w + xx]; }
+    }
+    for (let i = 1; i < 9; i++) { const t = v[i]; let j = i - 1; while (j >= 0 && v[j] > t) { v[j + 1] = v[j]; j--; } v[j + 1] = t; }
+    out[y * w + x] = v[4];
+  }
+  return out;
+}
+
+// Leftover fine noise inside blocks that look flat once smoothed.
+function flatNoise(g, w, h) {
+  const bw = Math.floor(w / BLOCK), bh = Math.floor(h / BLOCK);
+  if (!bw || !bh) return null;
+  const sm = blur(g, w, h, 2), md = median3(g, w, h), n = BLOCK * BLOCK;
+  let flat = 0, acc = 0;
+  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+    let s1 = 0, s2 = 0, r1 = 0, r2 = 0;
+    for (let y = by * BLOCK; y < (by + 1) * BLOCK; y++) for (let x = bx * BLOCK; x < (bx + 1) * BLOCK; x++) {
+      const i = y * w + x, a = sm[i], r = g[i] - md[i];
+      s1 += a; s2 += a * a; r1 += r; r2 += r * r;
+    }
+    const sstd = Math.sqrt(Math.max(0, s2 / n - (s1 / n) ** 2));
+    if (sstd < 2) { flat++; acc += Math.sqrt(Math.max(0, r2 / n - (r1 / n) ** 2)); }
+  }
+  if (flat / (bw * bh) < 0.05) return null;
+  return acc / flat;
+}
+
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang), half = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let j = 0; j < half; j++) {
+        const a = i + j, b = a + half;
+        const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+}
+
+// Share of spectral energy above 0.25 cycles/pixel (Nyquist = 0.5).
+function hfRatio(g, w, h) {
+  let N = 1;
+  while (N * 2 <= Math.min(w, h, CROP)) N *= 2;
+  if (N < 32) return null;
+  const ox = (w - N) >> 1, oy = (h - N) >> 1;
+  let mean = 0;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) mean += g[(oy + y) * w + ox + x];
+  mean /= N * N;
+  const han = new Float64Array(N);
+  for (let i = 0; i < N; i++) han[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+  const re = new Float64Array(N * N), im = new Float64Array(N * N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) re[y * N + x] = (g[(oy + y) * w + ox + x] - mean) * han[y] * han[x];
+  const rr = new Float64Array(N), ri = new Float64Array(N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) { rr[x] = re[y * N + x]; ri[x] = im[y * N + x]; }
+    fft(rr, ri);
+    for (let x = 0; x < N; x++) { re[y * N + x] = rr[x]; im[y * N + x] = ri[x]; }
+  }
+  for (let x = 0; x < N; x++) {
+    for (let y = 0; y < N; y++) { rr[y] = re[y * N + x]; ri[y] = im[y * N + x]; }
+    fft(rr, ri);
+    for (let y = 0; y < N; y++) { re[y * N + x] = rr[y]; im[y * N + x] = ri[y]; }
+  }
+  let tot = 0, hi = 0;
+  for (let y = 0; y < N; y++) {
+    const fy = (y < N / 2 ? y : y - N) / N;
+    for (let x = 0; x < N; x++) {
+      const fx = (x < N / 2 ? x : x - N) / N, r2 = fx * fx + fy * fy;
+      if (r2 === 0) continue;
+      const p = re[y * N + x] ** 2 + im[y * N + x] ** 2;
+      tot += p; if (r2 > 0.0625) hi += p;
+    }
+  }
+  return tot > 0 ? hi / tot : 0;
+}
+
+function median(sorted) { const n = sorted.length; return n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2; }
+
+function robustZ(vals, base) {
+  const b = base.filter(v => v != null && isFinite(v)).sort((a, c) => a - c);
+  if (b.length < MIN_BASE) return vals.map(() => null);
+  const med = median(b);
+  let mad = 1.4826 * median(b.map(v => Math.abs(v - med)).sort((a, c) => a - c));
+  if (!mad) { const m = b.reduce((s, v) => s + v, 0) / b.length; mad = Math.sqrt(b.reduce((s, v) => s + (v - m) ** 2, 0) / b.length) || 1e-9; }
+  return vals.map(v => v == null ? null : (v - med) / mad);
+}
+// ---------------------------------------------------------------- pure:end
+
+// ---------------------------------------------------------------- browser helpers
+const tick = () => new Promise(r => setTimeout(r, 0));
+const stem = n => n.replace(/\.[^.]+$/, '').toLowerCase();
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function mkCanvas(w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  return { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }), w, h };
+}
+
+async function decode(file) {
+  try { const b = await createImageBitmap(file, { imageOrientation: 'from-image' }); return { src: b, W: b.width, H: b.height }; }
+  catch {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.src = url; await img.decode();
+    return { src: img, W: img.naturalWidth, H: img.naturalHeight, url };
+  }
+}
+function release(d) { if (d.src.close) d.src.close(); if (d.url) URL.revokeObjectURL(d.url); }
+
+function thumb(d) {
+  const s = 144, k = Math.max(d.W, d.H) / s, c = mkCanvas(Math.max(1, Math.round(d.W / k)), Math.max(1, Math.round(d.H / k)));
+  c.ctx.drawImage(d.src, 0, 0, c.w, c.h);
+  return c.canvas.toDataURL('image/jpeg', 0.7);
+}
+
+function rgbOf(rgba, n) {
+  const out = new Uint8ClampedArray(n * 3);
+  for (let i = 0; i < n; i++) { out[i * 3] = rgba[i * 4]; out[i * 3 + 1] = rgba[i * 4 + 1]; out[i * 3 + 2] = rgba[i * 4 + 2]; }
+  return out;
+}
+
+// Light clean-up: JPEG at 75% then a slight blur. Real content survives; adversarial noise tends not to.
+async function purify(canvas) {
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.75));
+  const bmp = await createImageBitmap(blob);
+  const c = mkCanvas(canvas.width, canvas.height);
+  c.ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
+  const d = c.ctx.getImageData(0, 0, c.w, c.h).data, n = c.w * c.h, out = new Uint8ClampedArray(n * 3);
+  for (let ch = 0; ch < 3; ch++) {
+    const a = new Float32Array(n);
+    for (let i = 0; i < n; i++) a[i] = d[i * 4 + ch];
+    const b = blur(a, c.w, c.h, 1);
+    for (let i = 0; i < n; i++) out[i * 3 + ch] = b[i];
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- AI (CLIP)
+let AI = null;
+async function loadAI(withText, onProgress) {
+  const T = await import(TJS);
+  T.env.allowLocalModels = false;
+  const files = {};
+  const cb = p => {
+    if (p.status === 'progress' && p.total) {
+      files[p.file] = [p.loaded, p.total];
+      let l = 0, t = 0;
+      for (const [a, b] of Object.values(files)) { l += a; t += b; }
+      onProgress(l / t);
+    }
+  };
+  const opts = { dtype: 'q8', device: 'wasm', progress_callback: cb };
+  const ai = { T };
+  ai.processor = await T.AutoProcessor.from_pretrained(MODEL, { progress_callback: cb });
+  ai.vision = await T.CLIPVisionModelWithProjection.from_pretrained(MODEL, opts);
+  if (withText) {
+    ai.tokenizer = await T.AutoTokenizer.from_pretrained(MODEL, { progress_callback: cb });
+    ai.text = await T.CLIPTextModelWithProjection.from_pretrained(MODEL, opts);
+  }
+  return ai;
+}
+const unit = v => { let s = 0; for (const x of v) s += x * x; s = Math.sqrt(s) || 1; return Float32Array.from(v, x => x / s); };
+const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+async function embedImage(rgb, w, h) {
+  const img = new AI.T.RawImage(rgb, w, h, 3);
+  const { image_embeds } = await AI.vision(await AI.processor(img));
+  return unit(image_embeds.data);
+}
+async function embedTexts(labels) {
+  const inp = AI.tokenizer(labels.map(l => `a photo of a ${l}`), { padding: true, truncation: true });
+  const { text_embeds } = await AI.text(inp);
+  const d = text_embeds.dims[1];
+  return labels.map((_, i) => unit(text_embeds.data.slice(i * d, (i + 1) * d)));
+}
+const topIdx = (e, T) => { let bi = 0, bv = -Infinity; T.forEach((t, i) => { const v = dot(e, t); if (v > bv) { bv = v; bi = i; } }); return bi; };
+
+// ---------------------------------------------------------------- analysis
+async function analyseOne(file, opt) {
+  const d = await decode(file);
+  const cw = Math.min(d.W, CROP), ch = Math.min(d.H, CROP), sx = (d.W - cw) >> 1, sy = (d.H - ch) >> 1;
+  const c = mkCanvas(cw, ch);
+  c.ctx.drawImage(d.src, sx, sy, cw, ch, 0, 0, cw, ch);   // native-resolution centre crop: no resizing
+  const rgba = c.ctx.getImageData(0, 0, cw, ch).data, n = cw * ch;
+  const g = toGray(rgba, n);
+  const row = { name: file.name, size: `${d.W}×${d.H}`, thumb: opt.thumbs ? thumb(d) : null, hf: hfRatio(g, cw, ch), flat: flatNoise(g, cw, ch) };
+
+  if (opt.ai) {
+    const e1 = await embedImage(rgbOf(rgba, n), cw, ch);
+    const e2 = await embedImage(await purify(c.canvas), cw, ch);
+    row.drift = 1 - dot(e1, e2);
+    if (opt.textEmb) { row.labRaw = opt.labels[topIdx(e1, opt.textEmb)]; row.labClean = opt.labels[topIdx(e2, opt.textEmb)]; }
+  }
+
+  const of = opt.origMap && opt.origMap.get(stem(file.name));
+  if (of) {
+    const o = await decode(of);
+    const oc = mkCanvas(cw, ch);
+    oc.ctx.drawImage(o.src, sx * o.W / d.W, sy * o.H / d.H, cw * o.W / d.W, ch * o.H / d.H, 0, 0, cw, ch);
+    const od = oc.ctx.getImageData(0, 0, cw, ch).data;
+    const dm = oc.ctx.createImageData(cw, ch);
+    let se = 0, changed = 0;
+    for (let i = 0; i < n; i++) {
+      let mx = 0, sum = 0;
+      for (let k = 0; k < 3; k++) { const df = rgba[i * 4 + k] - od[i * 4 + k], ad = Math.abs(df); se += df * df; sum += ad; if (ad > mx) mx = ad; }
+      if (mx > 2) changed++;
+      const v = Math.min(255, sum / 3 * 10);
+      dm.data[i * 4] = dm.data[i * 4 + 1] = dm.data[i * 4 + 2] = v; dm.data[i * 4 + 3] = 255;
+    }
+    oc.ctx.putImageData(dm, 0, 0);
+    const mse = se / (n * 3);
+    row.psnr = mse === 0 ? Infinity : 10 * Math.log10(255 * 255 / mse);
+    row.changed = changed / n;
+    if (changed) row.diff = oc.canvas.toDataURL('image/jpeg', 0.85);
+    row.resized = o.W !== d.W || o.H !== d.H;
+    release(o);
+  }
+  release(d);
+  return row;
+}
+
+async function analyseAll(files, opt, label) {
+  const rows = [];
+  for (let i = 0; i < files.length; i++) {
+    setStatus(`${label} ${i + 1} of ${files.length}…`, (i) / files.length);
+    try { rows.push(await analyseOne(files[i], opt)); }
+    catch (e) { rows.push({ name: files[i].name, error: String(e && e.message || e) }); }
+    await tick();
+  }
+  return rows;
+}
+
+function score(rows, base) {
+  const ok = rows.filter(r => !r.error), okBase = base.filter(r => !r.error);
+  const metrics = [
+    ['flat', 'Unusual fine texture hiding in smooth areas'],
+    ['hf', 'Unusually high amount of very fine detail / noise'],
+    ['drift', "The AI's view of the image shifts a lot after a light clean-up"],
+  ];
+  for (const r of rows) r.why = [];
+  for (const [m, text] of metrics) {
+    const zs = robustZ(ok.map(r => r[m] ?? null), okBase.map(r => r[m] ?? null));
+    ok.forEach((r, i) => { r[m + 'Z'] = zs[i]; if (zs[i] != null && zs[i] > ZFLAG) r.why.push(text); });
+  }
+  for (const r of ok) {
+    if (r.labRaw && r.labRaw !== r.labClean) r.why.push(`AI says "${r.labRaw}", but "${r.labClean}" after a light clean-up`);
+    if (r.changed != null && r.changed > 0.25 && r.psnr > 28 && r.psnr < 50)
+      r.why.push(`${Math.round(r.changed * 100)}% of pixels were changed compared to the original (see the change map)`);
+  }
+  for (const r of rows) {
+    r.flags = r.why.length;
+    r.verdict = r.error ? "Couldn't read" : r.flags >= 2 ? 'Suspicious' : r.flags === 1 ? 'Worth a closer look' : 'Looks normal';
+  }
+  rows.sort((a, b) => (b.flags - a.flags) || ((b.driftZ ?? b.flatZ ?? 0) - (a.driftZ ?? a.flatZ ?? 0)));
+  return rows;
+}
+
+// ---------------------------------------------------------------- UI
+const sets = { check: [], clean: [], orig: [] };
+const isImg = f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|gif|avif|heic|tiff?)$/i.test(f.name);
+function bindPicker(input, key, out) {
+  $(input).addEventListener('change', e => {
+    sets[key] = [...e.target.files].filter(isImg);
+    $(out).textContent = sets[key].length ? `${sets[key].length} selected` : '';
+    $('#run').disabled = !sets.check.length;
+  });
+}
+bindPicker('#fCheck', 'check', '#nCheck');
+bindPicker('#fClean', 'clean', '#nClean');
+bindPicker('#fOrig', 'orig', '#nOrig');
+
+function setStatus(text, frac) {
+  $('#status').textContent = text || '';
+  const bar = $('#bar');
+  if (frac == null) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block'; bar.firstElementChild.style.width = `${Math.round(frac * 100)}%`;
+}
+function addNote(t) { const d = document.createElement('div'); d.className = 'note'; d.textContent = t; $('#notes').appendChild(d); }
+
+const fmt = (v, dp = 4) => v == null ? '–' : v === Infinity ? '∞' : typeof v === 'number' ? v.toFixed(dp) : String(v);
+
+function render(rows) {
+  const flagged = rows.filter(r => r.flags).length;
+  $('#summary').textContent = flagged
+    ? `${flagged} of ${rows.length} image${rows.length > 1 ? 's' : ''} need a closer look`
+    : `All ${rows.length} image${rows.length > 1 ? 's' : ''} look normal`;
+  $('#tools').hidden = false;
+  $('#results').innerHTML = rows.map((r, i) => {
+    const cls = r.error ? 'err' : r.flags >= 2 ? 'bad' : r.flags ? 'maybe' : 'ok';
+    const nums = r.error ? esc(r.error) : [
+      `fine-detail ${fmt(r.hf)}`, `smooth-area noise ${fmt(r.flat, 3)}`,
+      r.drift != null ? `AI shift ${fmt(r.drift)}` : null,
+      r.labRaw ? `AI label ${esc(r.labRaw)} → ${esc(r.labClean)}` : null,
+      r.psnr != null ? (r.changed === 0 ? 'identical to original' : `PSNR ${fmt(r.psnr, 1)}, ${Math.round(r.changed * 100)}% pixels changed${r.resized ? ' (original was a different size)' : ''}`) : null,
+      r.size,
+    ].filter(Boolean).join(' · ');
+    return `<div class="card"><div class="row">
+      ${r.thumb ? `<img class="th" src="${r.thumb}" alt="">` : ''}
+      <div class="body"><div class="name">${esc(r.name)}</div>
+        <span class="pill ${cls}">${r.verdict}</span>
+        ${r.why && r.why.length ? `<ul class="why">${r.why.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+        <div class="nums">${nums}</div>
+        ${r.diff ? `<details class="diff"><summary>Show change map vs original</summary><p class="hint">Bright = changed. Swirly texture all over suggests poisoning; 8×8 blocky patterns near edges are just JPEG re-saving.</p><img src="${r.diff}" alt="change map"></details>` : ''}
+      </div></div></div>`;
+  }).join('');
+}
+
+let lastRows = [];
+function csv(rows) {
+  const cols = ['file', 'verdict', 'warnings', 'fine_detail', 'smooth_area_noise', 'ai_shift', 'ai_label', 'ai_label_after_cleanup', 'psnr', 'pct_pixels_changed', 'size', 'reasons'];
+  const q = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const lines = [cols.join(',')];
+  for (const r of rows) lines.push([r.name, r.verdict, r.flags, r.hf, r.flat, r.drift, r.labRaw, r.labClean,
+    r.psnr === Infinity ? 'identical' : r.psnr, r.changed != null ? (r.changed * 100).toFixed(1) : null, r.size,
+    (r.why || []).join('; ') || r.error].map(q).join(','));
+  return lines.join('\n');
+}
+$('#copy').addEventListener('click', async () => {
+  const text = csv(lastRows);
+  try { await navigator.clipboard.writeText(text); }
+  catch { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); }
+  $('#copy').textContent = 'Copied!'; setTimeout(() => $('#copy').textContent = 'Copy results', 1500);
+});
+$('#dl').addEventListener('click', () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv(lastRows)], { type: 'text/csv' }));
+  a.download = 'poison-check.csv'; document.body.appendChild(a); a.click(); a.remove();
+});
+
+$('#run').addEventListener('click', async () => {
+  const run = $('#run');
+  run.disabled = true; $('#notes').innerHTML = ''; $('#results').innerHTML = ''; $('#summary').textContent = ''; $('#tools').hidden = true;
+  const labels = $('#labels').value.split(',').map(s => s.trim()).filter(Boolean);
+  const useAI = $('#useAI').checked;
+  const opt = { ai: false, labels, thumbs: true };
+
+  if (useAI) {
+    try {
+      if (!AI || (labels.length && !AI.text)) {
+        setStatus('Getting the AI model ready (only slow the first time)…', 0);
+        AI = await loadAI(labels.length > 1, f => setStatus(`Downloading the AI model… ${Math.round(f * 100)}%`, f));
+      }
+      opt.ai = true;
+      if (labels.length > 1) opt.textEmb = await embedTexts(labels);
+      else if (labels.length === 1) addNote('Add at least two labels for the label check (e.g. "cat, dog").');
+    } catch (e) {
+      console.error(e);
+      addNote("Couldn't load the AI check (it needs internet the first time). Running the other checks only.");
+    }
+  } else if (labels.length) addNote('Labels need the AI check turned on, so they were skipped.');
+
+  if (sets.orig.length) opt.origMap = new Map(sets.orig.map(f => [stem(f.name), f]));
+
+  try {
+    let rows = await analyseAll(sets.check, opt, 'Checking image');
+    let base = rows;
+    if (sets.clean.length) base = await analyseAll(sets.clean, { ...opt, labels: [], textEmb: null, origMap: null, thumbs: false }, 'Checking clean image');
+    if (base.filter(r => !r.error).length < MIN_BASE)
+      addNote(`Only ${base.filter(r => !r.error).length} image(s) to compare against, so the "odd one out" checks are off. Pick 8+ images, or add some known-clean ones under Extra options.`);
+    if (opt.origMap && !rows.some(r => r.psnr != null)) addNote('None of the originals matched by file name, so that check was skipped.');
+    lastRows = score(rows, base);
+    setStatus('');
+    render(lastRows);
+  } catch (e) {
+    console.error(e);
+    setStatus('Something went wrong: ' + (e && e.message || e));
+  }
+  run.disabled = !sets.check.length;
+});
+</script>
+</body>
+</html>
