@@ -60,16 +60,19 @@ ul.why{margin:6px 0 0;padding-left:18px;font-size:.93rem}
 <body>
 <main>
   <h1>Poison Check</h1>
-  <p class="lede"><span style="float:right;font-size:.75rem;opacity:.6">v2</span>Spots images that may have hidden AI-poisoning (like Nightshade or Glaze). Everything runs on your device: your images are never uploaded.</p>
+  <p class="lede"><span style="float:right;font-size:.75rem;opacity:.6">v3</span>Spots images that may have hidden AI-poisoning (like Nightshade or Glaze). Everything runs on your device: your images are never uploaded.</p>
 
   <div class="card">
     <p class="step">1. Pick the images to check</p>
     <div class="pick">
-      <label class="btn" for="fCheck">Choose images</label>
+      <label class="btn" for="fCheck">Choose photos</label>
       <input id="fCheck" type="file" accept="image/*" multiple>
+      <label class="btn secondary" for="fCheck2">Choose from Files</label>
+      <input id="fCheck2" type="file" multiple>
       <span class="count" id="nCheck"></span>
     </div>
     <p class="hint">Pick 8 or more if you can. The checker compares images against each other to find the odd ones out.</p>
+    <p class="hint">If photos show "couldn't be read", use <b>Choose from Files</b> instead.</p>
   </div>
 
   <div class="card">
@@ -84,8 +87,10 @@ ul.why{margin:6px 0 0;padding-left:18px;font-size:.93rem}
       <div class="opt">
         <p class="step">Known-clean images</p>
         <div class="pick">
-          <label class="btn secondary" for="fClean">Choose</label>
+          <label class="btn secondary" for="fClean">Photos</label>
           <input id="fClean" type="file" accept="image/*" multiple>
+          <label class="btn secondary" for="fClean2">Files</label>
+          <input id="fClean2" type="file" multiple>
           <span class="count" id="nClean"></span>
         </div>
         <p class="hint">Images you know are fine and in a similar style. Makes the results much more reliable.</p>
@@ -94,8 +99,10 @@ ul.why{margin:6px 0 0;padding-left:18px;font-size:.93rem}
       <div class="opt">
         <p class="step">Originals</p>
         <div class="pick">
-          <label class="btn secondary" for="fOrig">Choose</label>
+          <label class="btn secondary" for="fOrig">Photos</label>
           <input id="fOrig" type="file" accept="image/*" multiple>
+          <label class="btn secondary" for="fOrig2">Files</label>
+          <input id="fOrig2" type="file" multiple>
           <span class="count" id="nOrig"></span>
         </div>
         <p class="hint">If you have the untouched versions, pick them here. They're matched by file name and you'll see exactly what changed.</p>
@@ -304,20 +311,37 @@ async function decodeBlob(blob) {
     return { src: img, W: img.naturalWidth, H: img.naturalHeight, url };
   }
 }
-// Read the bytes ourselves first (phones can hand over files that only open once),
-// then decode; retry once after a pause in case the phone was short on memory.
-async function decode(file) {
-  let buf;
-  try { buf = await file.arrayBuffer(); }
-  catch (e) { throw new Error(`Phone wouldn't let the page read this file (${e.name || 'read error'}). Try picking it from the Files app instead of the gallery.`); }
-  if (!buf.byteLength) throw new Error('File came through empty (0 bytes). Try picking it from the Files app instead of the gallery.');
-  const blob = new Blob([buf], { type: guessType(file) });
-  try { return await decodeBlob(blob); }
-  catch {
-    await sleep(400);
-    try { return await decodeBlob(blob); }
-    catch (e) { throw new Error(`Couldn't open the image (${e.name || 'decode error'}, ${buf.byteLength >= 1e6 ? (buf.byteLength / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(buf.byteLength / 1e3)) + ' KB'}). The phone may be low on memory: try fewer images at once, or turn off the AI check.`); }
+// Photos are read into memory the moment they're picked (see preload), while the
+// page certainly has permission. Decode from that copy; retry once if the phone was short on memory.
+async function decode(item) {
+  if (item.blob) {
+    try { return await decodeBlob(item.blob); }
+    catch {
+      await sleep(400);
+      try { return await decodeBlob(item.blob); }
+      catch (e) {
+        const b = item.blob.size, size = b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
+        throw new Error(`Couldn't open the image (${e.name || 'decode error'}, ${size}). The phone may be low on memory: try fewer images at once, or turn off the AI check.`);
+      }
+    }
   }
+  try { return await decodeBlob(item.file); }   // last resort: let the browser open it directly
+  catch { throw new Error(`Phone wouldn't let the page read this file (${item.err}). Pick it with "Choose from Files" instead.`); }
+}
+
+async function preload(files, onProgress) {
+  const items = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i], it = { name: f.name, file: f, blob: null, err: null };
+    onProgress(i, files.length);
+    try {
+      const buf = await f.arrayBuffer();
+      if (!buf.byteLength) throw Object.assign(new Error('empty'), { name: 'EmptyFile' });
+      it.blob = new Blob([buf], { type: guessType(f) });
+    } catch (e) { it.err = e.name || 'read error'; }
+    items.push(it);
+  }
+  return items;
 }
 function release(d) { if (d.src.close) d.src.close(); if (d.url) URL.revokeObjectURL(d.url); }
 function free(...cs) { for (const c of cs) if (c && c.canvas) { c.canvas.width = 0; c.canvas.height = 0; } }
@@ -478,16 +502,27 @@ function score(rows, base) {
 // ---------------------------------------------------------------- UI
 const sets = { check: [], clean: [], orig: [] };
 const isImg = f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|gif|avif|heic|tiff?)$/i.test(f.name);
-function bindPicker(input, key, out) {
-  $(input).addEventListener('change', e => {
-    sets[key] = [...e.target.files].filter(isImg);
-    $(out).textContent = sets[key].length ? `${sets[key].length} selected` : '';
-    $('#run').disabled = !sets.check.length;
+const loading = {};
+function bindPicker(inputs, key, out) {
+  for (const input of inputs) $(input).addEventListener('change', async e => {
+    const files = [...e.target.files].filter(isImg);
+    e.target.value = '';
+    const token = loading[key] = Symbol();
+    $('#run').disabled = true;
+    const items = await preload(files, (i, n) => { if (loading[key] === token) $(out).textContent = `Loading ${i + 1} of ${n}…`; });
+    if (loading[key] !== token) return;          // a newer pick replaced this one
+    delete loading[key];
+    sets[key] = items;
+    const bad = items.filter(it => !it.blob).length;
+    $(out).textContent = !items.length ? '' : bad
+      ? `${items.length - bad} ready · ${bad} couldn't be read (try Choose from Files)`
+      : `${items.length} ready`;
+    $('#run').disabled = !sets.check.length || Object.keys(loading).length > 0;
   });
 }
-bindPicker('#fCheck', 'check', '#nCheck');
-bindPicker('#fClean', 'clean', '#nClean');
-bindPicker('#fOrig', 'orig', '#nOrig');
+bindPicker(['#fCheck', '#fCheck2'], 'check', '#nCheck');
+bindPicker(['#fClean', '#fClean2'], 'clean', '#nClean');
+bindPicker(['#fOrig', '#fOrig2'], 'orig', '#nOrig');
 
 function setStatus(text, frac) {
   $('#status').textContent = text || '';
